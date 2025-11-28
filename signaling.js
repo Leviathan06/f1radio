@@ -11,6 +11,9 @@ const clients = new Map(); // socket => {team, name}
 wss.on("connection", socket => {
   console.log("Client connected");
 
+  // 연결 시 join 메시지 요청
+  socket.write(JSON.stringify({ type: "request", action: "join" }));
+
   socket.on("message", msg => {
     let data;
     try {
@@ -23,19 +26,29 @@ wss.on("connection", socket => {
     // join 메시지 처리
     if (data.type === "join") {
       clients.set(socket, { team: data.team, name: data.fromName });
+      console.log(`User joined - Team: ${data.team}, Name: ${data.fromName}`);
       return;
     }
 
-    // OFFER/ANSWER/ICE 모두 처리
+    // 모든 메시지 (offer/answer/ice) 전달
     wss.clients.forEach(client => {
       if (client.readyState !== client.OPEN || client === socket) return;
 
+      // "all" 대상 메시지는 모두에게 전달
       if (data.to === "all") {
         client.send(JSON.stringify(data));
-      } else {
+      } 
+      // 팀/사용자 대상 메시지는 필터링 후 전달
+      else if (data.to === "team") {
         const targetInfo = clients.get(client);
-        if (!targetInfo) return;
-        if (targetInfo.team === data.to) {
+        if (targetInfo && targetInfo.team === data.toTeam) {
+          client.send(JSON.stringify(data));
+        }
+      } 
+      // 특정 사용자에게 전달
+      else if (data.to === "user" && data.toName) {
+        const targetInfo = clients.get(client);
+        if (targetInfo && targetInfo.name === data.toName) {
           client.send(JSON.stringify(data));
         }
       }
@@ -43,7 +56,10 @@ wss.on("connection", socket => {
   });
 
   socket.on("close", () => {
+    const info = clients.get(socket);
+    if (info) {
+      console.log(`User disconnected - Team: ${info.team}, Name: ${info.name}`);
+    }
     clients.delete(socket);
-    console.log("Client disconnected");
   });
 });
